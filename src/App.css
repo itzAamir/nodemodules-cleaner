@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+/* Force dark mode classes to work */
+.dark {
+	color-scheme: dark;
+}
+
+/* Custom dark mode variables */
+:root {
+	--bg-primary: #f8fafc;
+	--bg-secondary: #ffffff;
+	--text-primary: #0f172a;
+	--text-secondary: #64748b;
+	--border-color: #e2e8f0;
+}
+
+.dark {
+	--bg-primary: #0f0f0f; /* Pure black */
+	--bg-secondary: #1a1a1a; /* Very dark grey */
+	--text-primary: #ffffff; /* Pure white */
+	--text-secondary: #e5e5e5; /* Light grey */
+	--border-color: #404040; /* Dark grey border */
+}
