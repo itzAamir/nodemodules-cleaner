@@ -309,8 +309,9 @@ function App() {
 		updateSelectedItems();
 	};
 
-	const updateSelectedItems = () => {
+	const updateSelectedItems = (currentTreeData?: TreeNode[]) => {
 		const selectedPaths = new Set<string>();
+		const dataToUse = currentTreeData || treeData;
 
 		const collectSelectedPaths = (nodes: TreeNode[]) => {
 			nodes.forEach((node) => {
@@ -323,7 +324,7 @@ function App() {
 			});
 		};
 
-		collectSelectedPaths(treeData);
+		collectSelectedPaths(dataToUse);
 		setSelectedItems(selectedPaths);
 	};
 
@@ -334,14 +335,22 @@ function App() {
 					return { ...node, isSelected: true };
 				}
 				if (node.children.length > 0) {
-					return { ...node, children: updateNode(node.children) };
+					return {
+						...node,
+						isExpanded: true,
+						children: updateNode(node.children),
+					};
 				}
 				return node;
 			});
 		};
 
-		setTreeData((prev) => updateNode(prev));
-		updateSelectedItems();
+		setTreeData((prev) => {
+			const updatedData = updateNode(prev);
+			// Update selected items immediately with the new data
+			updateSelectedItems(updatedData);
+			return updatedData;
+		});
 	};
 
 	const deselectAllNodeModules = () => {
@@ -357,8 +366,12 @@ function App() {
 			});
 		};
 
-		setTreeData((prev) => updateNode(prev));
-		updateSelectedItems();
+		setTreeData((prev) => {
+			const updatedData = updateNode(prev);
+			// Update selected items immediately with the new data
+			updateSelectedItems(updatedData);
+			return updatedData;
+		});
 	};
 
 	const handleBrowseFolder = async () => {
@@ -676,7 +689,7 @@ function App() {
 
 					{/* Actions */}
 					{isNodeModules && (
-						<div className="flex items-center space-x-1 ml-2">
+						<div className="flex items-center ml-2 space-x-1">
 							<button
 								onClick={() => handleOpenFolder(node.path)}
 								className={`text-xs font-medium hover:underline transition-colors duration-150 ${
@@ -718,11 +731,11 @@ function App() {
 		<div
 			className={`h-screen flex flex-col overflow-hidden ${
 				isDarkMode
-					? "bg-black text-white"
-					: "bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 text-slate-900"
+					? "text-white bg-black"
+					: "bg-gradient-to-br via-blue-50 to-indigo-50 from-slate-50 text-slate-900"
 			}`}
 		>
-			<div className="flex-1 flex flex-col p-4 min-h-0">
+			<div className="flex flex-col flex-1 p-4 min-h-0">
 				{/* Header */}
 				<div
 					className={`flex justify-between items-center mb-4 border-b pb-4 ${
@@ -761,7 +774,7 @@ function App() {
 								>
 									Clean up your development environment
 								</p>
-								<div className="flex items-center space-x-1 px-2 py-1 bg-green-100 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-full">
+								<div className="flex items-center px-2 py-1 space-x-1 bg-green-100 rounded-full border border-green-200 dark:bg-green-900/20 dark:border-green-800">
 									<svg
 										className="w-3 h-3 text-green-600 dark:text-green-400"
 										fill="currentColor"
@@ -810,7 +823,7 @@ function App() {
 					className={`rounded-lg border p-6 mb-4 ${
 						isDarkMode
 							? "bg-zinc-900 border-zinc-800"
-							: "bg-white/90 backdrop-blur-sm border-slate-200/50 shadow-lg"
+							: "shadow-lg backdrop-blur-sm bg-white/90 border-slate-200/50"
 					}`}
 				>
 					<div className="flex justify-between items-start mb-4">
@@ -820,7 +833,7 @@ function App() {
 							}`}
 						>
 							<svg
-								className="w-5 h-5 mr-2 text-blue-600"
+								className="mr-2 w-5 h-5 text-blue-600"
 								fill="none"
 								stroke="currentColor"
 								viewBox="0 0 24 24"
@@ -837,7 +850,7 @@ function App() {
 
 						{/* Safety Info Tooltip */}
 						<div className="relative group">
-							<button className="p-2 text-blue-600 hover:text-blue-700 transition-colors">
+							<button className="p-2 text-blue-600 transition-colors hover:text-blue-700">
 								<svg
 									className="w-5 h-5"
 									fill="none"
@@ -852,11 +865,11 @@ function App() {
 									/>
 								</svg>
 							</button>
-							<div className="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg shadow-lg p-4 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
-								<h4 className="font-medium text-slate-900 dark:text-white mb-2">
+							<div className="absolute right-0 top-full invisible z-10 p-4 mt-2 w-80 bg-white rounded-lg border shadow-lg opacity-0 transition-all duration-200 dark:bg-zinc-800 border-slate-200 dark:border-zinc-700 group-hover:opacity-100 group-hover:visible">
+								<h4 className="mb-2 font-medium text-slate-900 dark:text-white">
 									Safety Features
 								</h4>
-								<ul className="text-sm text-slate-600 dark:text-zinc-400 space-y-1">
+								<ul className="space-y-1 text-sm text-slate-600 dark:text-zinc-400">
 									<li>
 										• Only scans development directories (skips system folders)
 									</li>
@@ -889,17 +902,17 @@ function App() {
 								Folder
 							</label>
 							{scanScope === "folder" && (
-								<div className="flex-1 flex items-center space-x-2 ml-4">
+								<div className="flex flex-1 items-center ml-4 space-x-2">
 									<input
 										type="text"
 										value={selectedFolder}
 										onChange={(e) => setSelectedFolder(e.target.value)}
 										placeholder="Choose a folder or paste a path"
-										className="flex-1 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+										className="flex-1 px-3 py-2 text-sm bg-white rounded border border-slate-300 dark:border-slate-600 dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 									/>
 									<button
 										onClick={handleBrowseFolder}
-										className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm font-medium border border-slate-300 dark:border-slate-600"
+										className="px-4 py-2 text-sm font-medium rounded border transition-colors bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 border-slate-300 dark:border-slate-600"
 									>
 										Browse...
 									</button>
@@ -928,7 +941,7 @@ function App() {
 							</label>
 							{scanScope === "drive" && (
 								<div className="flex-1 ml-4">
-									<div className="text-xs text-slate-600 dark:text-slate-400 mb-2">
+									<div className="mb-2 text-xs text-slate-600 dark:text-slate-400">
 										Pick a drive to scan
 									</div>
 									<div className="flex flex-wrap gap-2">
@@ -983,14 +996,14 @@ function App() {
 					</div>
 
 					{/* Options and Actions */}
-					<div className="flex justify-between items-center mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+					<div className="flex justify-between items-center pt-4 mt-4 border-t border-slate-200 dark:border-slate-700">
 						<div className="flex items-center space-x-2">
 							<input
 								type="checkbox"
 								id="include-sizes"
 								checked={includeSizes}
 								onChange={(e) => setIncludeSizes(e.target.checked)}
-								className="w-4 h-4 text-blue-600 bg-white dark:bg-slate-700 border-slate-300 dark:border-slate-600 rounded focus:ring-blue-500 focus:ring-2"
+								className="w-4 h-4 text-blue-600 bg-white rounded dark:bg-slate-700 border-slate-300 dark:border-slate-600 focus:ring-blue-500 focus:ring-2"
 							/>
 							<label
 								htmlFor="include-sizes"
@@ -1007,13 +1020,13 @@ function App() {
 							disabled={isScanning}
 							className={`px-6 py-2 rounded transition-all duration-200 font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
 								isDarkMode
-									? "bg-blue-600 text-white hover:bg-blue-700"
-									: "bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-lg hover:shadow-xl transform hover:scale-105"
+									? "text-white bg-blue-600 hover:bg-blue-700"
+									: "text-white bg-gradient-to-r from-blue-600 to-indigo-600 shadow-lg transform hover:from-blue-700 hover:to-indigo-700 hover:shadow-xl hover:scale-105"
 							}`}
 						>
 							{isScanning ? (
 								<div className="flex items-center space-x-2">
-									<div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+									<div className="w-4 h-4 rounded-full border-2 border-white animate-spin border-t-transparent"></div>
 									<span>Scanning...</span>
 								</div>
 							) : (
@@ -1029,7 +1042,7 @@ function App() {
 						className={`rounded-lg border p-4 mb-4 ${
 							isDarkMode
 								? "bg-zinc-900 border-zinc-800"
-								: "bg-white/90 backdrop-blur-sm border-slate-200/50 shadow-lg"
+								: "shadow-lg backdrop-blur-sm bg-white/90 border-slate-200/50"
 						}`}
 					>
 						<div className="flex justify-between items-center mb-3">
@@ -1087,9 +1100,9 @@ function App() {
 
 						{/* Progress bar - only show when we have estimated folders */}
 						{scanProgress.total_folders_estimated > 0 && (
-							<div className="w-full bg-slate-200 dark:bg-zinc-700 rounded-full h-2 overflow-hidden mb-2">
+							<div className="overflow-hidden mb-2 w-full h-2 rounded-full bg-slate-200 dark:bg-zinc-700">
 								<div
-									className="bg-blue-500 h-2 rounded-full transition-all duration-500 ease-out"
+									className="h-2 bg-blue-500 rounded-full transition-all duration-500 ease-out"
 									style={{
 										width: `${Math.min(
 											(scanProgress.folders_scanned /
@@ -1135,7 +1148,7 @@ function App() {
 						className={`flex-1 rounded-lg border flex flex-col min-h-0 max-h-full ${
 							isDarkMode
 								? "bg-zinc-900 border-zinc-800"
-								: "bg-white/90 backdrop-blur-sm border-slate-200/50 shadow-lg"
+								: "shadow-lg backdrop-blur-sm bg-white/90 border-slate-200/50"
 						}`}
 					>
 						<div
@@ -1181,7 +1194,7 @@ function App() {
 						</div>
 
 						<div
-							className="flex-1 overflow-y-auto p-2 min-h-0"
+							className="overflow-y-auto flex-1 p-2 min-h-0"
 							style={{ maxHeight: "calc(100vh - 400px)" }}
 						>
 							{treeData.map((node) => renderTreeNode(node))}
@@ -1195,7 +1208,7 @@ function App() {
 						className={`flex-1 rounded-lg border flex items-center justify-center ${
 							isDarkMode
 								? "bg-zinc-900 border-zinc-800"
-								: "bg-white/90 backdrop-blur-sm border-slate-200/50 shadow-lg"
+								: "shadow-lg backdrop-blur-sm bg-white/90 border-slate-200/50"
 						}`}
 					>
 						<div className="text-center">
@@ -1233,12 +1246,12 @@ function App() {
 
 			{/* Delete Confirmation Modal */}
 			{showDeleteModal && deleteTarget && (
-				<div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-					<div className="bg-white dark:bg-zinc-900 rounded-lg p-6 max-w-2xl w-full mx-4 shadow-xl border border-slate-200 dark:border-zinc-800">
+				<div className="flex fixed inset-0 z-50 justify-center items-center bg-black/50">
+					<div className="p-6 mx-4 w-full max-w-2xl bg-white rounded-lg border shadow-xl dark:bg-zinc-900 border-slate-200 dark:border-zinc-800">
 						<div className="text-center">
-							<div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 dark:bg-red-900/20 mb-4">
+							<div className="flex justify-center items-center mx-auto mb-4 w-12 h-12 bg-red-100 rounded-full dark:bg-red-900/20">
 								<svg
-									className="h-6 w-6 text-red-600 dark:text-red-400"
+									className="w-6 h-6 text-red-600 dark:text-red-400"
 									fill="none"
 									stroke="currentColor"
 									viewBox="0 0 24 24"
@@ -1251,14 +1264,14 @@ function App() {
 									/>
 								</svg>
 							</div>
-							<h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
+							<h3 className="mb-2 text-lg font-semibold text-slate-900 dark:text-white">
 								{deleteTarget.type === "single"
 									? "Delete this node_modules folder?"
 									: `Delete ${deleteTarget.count} node_modules folders?`}
 							</h3>
 
 							{/* Safety Information */}
-							<div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6 text-left">
+							<div className="p-4 mb-6 text-left bg-blue-50 rounded-lg border border-blue-200 dark:bg-blue-900/20 dark:border-blue-800">
 								<div className="flex items-start space-x-3">
 									<svg
 										className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0"
@@ -1274,10 +1287,10 @@ function App() {
 										/>
 									</svg>
 									<div>
-										<h4 className="font-medium text-blue-900 dark:text-blue-100 mb-2">
+										<h4 className="mb-2 font-medium text-blue-900 dark:text-blue-100">
 											Safety Features Enabled
 										</h4>
-										<ul className="text-sm text-blue-800 dark:text-blue-200 space-y-1">
+										<ul className="space-y-1 text-sm text-blue-800 dark:text-blue-200">
 											<li>
 												• Files will be moved to Recycle Bin (not permanently
 												deleted)
@@ -1296,17 +1309,17 @@ function App() {
 
 							{/* What Will Be Deleted */}
 							{deleteTarget.type === "single" && deleteTarget.path && (
-								<div className="bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg p-3 mb-6 text-left">
-									<div className="text-sm font-medium text-slate-700 dark:text-zinc-300 mb-2">
+								<div className="p-3 mb-6 text-left rounded-lg border bg-slate-50 dark:bg-zinc-800 border-slate-200 dark:border-zinc-700">
+									<div className="mb-2 text-sm font-medium text-slate-700 dark:text-zinc-300">
 										Path to be deleted:
 									</div>
-									<div className="text-xs font-mono text-slate-600 dark:text-zinc-400 break-all">
+									<div className="font-mono text-xs break-all text-slate-600 dark:text-zinc-400">
 										{deleteTarget.path}
 									</div>
 								</div>
 							)}
 
-							<p className="text-slate-600 dark:text-zinc-400 mb-6 text-sm">
+							<p className="mb-6 text-sm text-slate-600 dark:text-zinc-400">
 								This action will move the selected node_modules folders to your
 								system's Recycle Bin. You can recover them later if needed.
 							</p>
@@ -1315,18 +1328,18 @@ function App() {
 								<button
 									onClick={() => setShowDeleteModal(false)}
 									disabled={isDeleting}
-									className="px-4 py-2 bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 rounded hover:bg-slate-200 dark:hover:bg-slate-200 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+									className="px-4 py-2 text-sm font-medium rounded transition-colors bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
 								>
 									Cancel
 								</button>
 								<button
 									onClick={confirmDelete}
 									disabled={isDeleting}
-									className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+									className="flex items-center px-4 py-2 space-x-2 text-sm font-medium text-white bg-red-600 rounded transition-colors hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
 								>
 									{isDeleting ? (
 										<>
-											<div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+											<div className="w-3 h-3 rounded-full border-2 border-white animate-spin border-t-transparent"></div>
 											<span>Deleting...</span>
 										</>
 									) : (

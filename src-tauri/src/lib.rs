@@ -1,12 +1,12 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
+use tokio::task;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ScanItem {
@@ -256,36 +256,96 @@ async fn delete_node_modules(paths: Vec<String>) -> Result<Vec<DeleteResult>, St
     let mut results: Vec<DeleteResult> = Vec::new();
 
     for path in paths {
-        let result = delete_single_node_modules(&path);
+        let result = delete_single_node_modules(&path).await;
         results.push(result);
     }
 
     Ok(results)
 }
 
-fn calculate_directory_size(path: &Path) -> Option<u64> {
-    let mut total_size = 0u64;
-    let mut stack = vec![path.to_path_buf()];
+#[tauri::command]
+async fn test_trash_functionality(path: String) -> Result<String, String> {
+    let path_buf = PathBuf::from(&path);
 
-    while let Some(current_path) = stack.pop() {
-        if let Ok(entries) = fs::read_dir(&current_path) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if let Ok(metadata) = entry.metadata() {
-                    if metadata.is_file() {
-                        total_size += metadata.len();
-                    } else if metadata.is_dir() {
-                        stack.push(path);
+    if !path_buf.exists() {
+        return Err("Path does not exist".to_string());
+    }
+
+    match trash::delete(&path_buf) {
+        Ok(_) => Ok("Successfully moved to trash".to_string()),
+        Err(e) => Err(format!("Failed to move to trash: {}", e)),
+    }
+}
+
+async fn calculate_directory_size(path: &Path) -> Option<u64> {
+    let path = path.to_path_buf();
+
+    // Run size calculation in a blocking thread pool to avoid blocking async runtime
+    task::spawn_blocking(move || {
+        let start_time = Instant::now();
+        let max_duration = Duration::from_secs(30); // Cap time for size calculation
+        let max_depth = 10; // Cap depth for size calculation
+
+        let mut total_size = 0u64;
+        let mut stack = vec![(path, 0)]; // (path, depth)
+        let mut processed_paths = 0;
+
+        while let Some((current_path, depth)) = stack.pop() {
+            // Check time limit
+            if start_time.elapsed() > max_duration {
+                eprintln!("Size calculation timed out for: {}", current_path.display());
+                return None;
+            }
+
+            // Check depth limit
+            if depth > max_depth {
+                continue;
+            }
+
+            // Reject symlinks/junctions
+            if let Ok(metadata) = fs::symlink_metadata(&current_path) {
+                if metadata.file_type().is_symlink() {
+                    continue;
+                }
+            }
+
+            if let Ok(entries) = fs::read_dir(&current_path) {
+                for entry in entries.flatten() {
+                    let entry_path = entry.path();
+
+                    // Reject symlinks/junctions
+                    if let Ok(metadata) = fs::symlink_metadata(&entry_path) {
+                        if metadata.file_type().is_symlink() {
+                            continue;
+                        }
+                    }
+
+                    if let Ok(metadata) = entry.metadata() {
+                        if metadata.is_file() {
+                            total_size += metadata.len();
+                        } else if metadata.is_dir() {
+                            stack.push((entry_path, depth + 1));
+                        }
                     }
                 }
             }
-        }
-    }
 
-    Some(total_size)
+            processed_paths += 1;
+
+            // Yield control periodically to keep UI responsive
+            if processed_paths % 1000 == 0 {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+
+        Some(total_size)
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
-fn delete_single_node_modules(path: &str) -> DeleteResult {
+async fn delete_single_node_modules(path: &str) -> DeleteResult {
     let path_buf = PathBuf::from(path);
 
     // Enhanced safety checks
@@ -305,6 +365,17 @@ fn delete_single_node_modules(path: &str) -> DeleteResult {
         };
     }
 
+    // Reject symlinks/junctions
+    if let Ok(metadata) = fs::symlink_metadata(&path_buf) {
+        if metadata.file_type().is_symlink() {
+            return DeleteResult {
+                path: path.to_string(),
+                success: false,
+                error: Some("Cannot delete symlinks/junctions".to_string()),
+            };
+        }
+    }
+
     // CRITICAL SAFETY CHECK: Ensure it's actually a node_modules directory
     if path_buf.file_name() != Some(std::ffi::OsStr::new("node_modules")) {
         return DeleteResult {
@@ -315,7 +386,9 @@ fn delete_single_node_modules(path: &str) -> DeleteResult {
     }
 
     // Additional safety: Check if this is a legitimate node_modules directory
-    if !is_legitimate_node_modules(&path_buf) {
+    let is_legitimate = is_legitimate_node_modules(&path_buf).await;
+    if !is_legitimate {
+        println!("Legitimacy check failed for: {}", path);
         return DeleteResult {
             path: path.to_string(),
             success: false,
@@ -323,111 +396,105 @@ fn delete_single_node_modules(path: &str) -> DeleteResult {
         };
     }
 
-    // Use system trash instead of permanent deletion for safety
-    match move_to_trash(&path_buf) {
-        Ok(_) => DeleteResult {
-            path: path.to_string(),
-            success: true,
-            error: None,
-        },
-        Err(e) => DeleteResult {
-            path: path.to_string(),
-            success: false,
-            error: Some(format!("Failed to delete: {}", e)),
-        },
+    // Use trash crate instead of custom implementation
+    match trash::delete(&path_buf) {
+        Ok(_) => {
+            println!("Successfully deleted: {}", path);
+            DeleteResult {
+                path: path.to_string(),
+                success: true,
+                error: None,
+            }
+        }
+        Err(e) => {
+            println!("Failed to delete {}: {}", path, e);
+            DeleteResult {
+                path: path.to_string(),
+                success: false,
+                error: Some(format!("Failed to delete: {}", e)),
+            }
+        }
     }
 }
 
-fn is_legitimate_node_modules(path: &Path) -> bool {
-    // Check if this directory contains typical node_modules contents
-    if let Ok(entries) = fs::read_dir(path) {
-        let mut has_package_json = false;
-        let mut has_node_modules_structure = false;
-        let mut entry_count = 0;
+async fn is_legitimate_node_modules(path: &Path) -> bool {
+    let path = path.to_path_buf();
 
-        for entry in entries.flatten() {
-            entry_count += 1;
+    // Run legitimacy check in a blocking thread pool
+    task::spawn_blocking(move || {
+        // First, check if parent directory has package.json or lockfiles
+        if let Some(parent) = path.parent() {
+            let parent_indicators = [
+                "package.json",
+                "package-lock.json",
+                "yarn.lock",
+                "pnpm-lock.yaml",
+                "bun.lockb",
+            ];
 
-            if let Ok(metadata) = entry.metadata() {
-                if metadata.is_dir() {
-                    // Check for common package directories
-                    let name = entry.file_name();
-                    let name_str = name.to_string_lossy();
-                    if name_str.contains('.') && name_str.len() > 3 {
-                        has_node_modules_structure = true;
-                    }
-                } else if metadata.is_file() {
-                    // Check for package.json or similar files
-                    let name = entry.file_name();
-                    let name_str = name.to_string_lossy();
-                    if name_str == "package.json" || name_str == "package-lock.json" {
-                        has_package_json = true;
-                    }
+            let mut has_parent_indicators = false;
+            for indicator in &parent_indicators {
+                if parent.join(indicator).exists() {
+                    has_parent_indicators = true;
+                    break;
                 }
             }
 
-            // Limit check to first 100 entries for performance
-            if entry_count > 100 {
-                break;
+            if !has_parent_indicators {
+                println!("No parent indicators found for: {}", path.display());
+                // For debugging, let's be more lenient and continue with the check
+                // return false;
             }
         }
 
-        // Must have either typical structure or package files
-        has_node_modules_structure || has_package_json
-    } else {
-        false
-    }
-}
+        // Check if this directory contains typical node_modules contents
+        if let Ok(entries) = fs::read_dir(&path) {
+            let mut has_package_json = false;
+            let mut has_node_modules_structure = false;
+            let mut entry_count = 0;
 
-fn move_to_trash(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(target_os = "windows")]
-    {
-        // On Windows, use PowerShell to move to Recycle Bin
-        let path_str = path.to_string_lossy().replace('/', "\\");
-        let script = format!(
-            "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('{}', 'RecycleBin')",
-            path_str
-        );
+            for entry in entries.flatten() {
+                entry_count += 1;
 
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &script])
-            .output()?;
+                // Reject symlinks/junctions
+                if let Ok(metadata) = fs::symlink_metadata(entry.path()) {
+                    if metadata.file_type().is_symlink() {
+                        continue;
+                    }
+                }
 
-        if !output.status.success() {
-            // Fallback to regular deletion if PowerShell fails
-            fs::remove_dir_all(path)?;
+                if let Ok(metadata) = entry.metadata() {
+                    if metadata.is_dir() {
+                        // Check for common package directories
+                        let name = entry.file_name();
+                        let name_str = name.to_string_lossy();
+                        if name_str.contains('.') && name_str.len() > 3 {
+                            has_node_modules_structure = true;
+                        }
+                    } else if metadata.is_file() {
+                        // Check for package.json or similar files
+                        let name = entry.file_name();
+                        let name_str = name.to_string_lossy();
+                        if name_str == "package.json" || name_str == "package-lock.json" {
+                            has_package_json = true;
+                        }
+                    }
+                }
+
+                // Limit check to first 50 entries for performance
+                if entry_count > 50 {
+                    break;
+                }
+            }
+
+            // Must have either typical structure or package files
+            has_node_modules_structure || has_package_json
+        } else {
+            false
         }
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        // On macOS, use the 'trash' command or fallback
-        if std::process::Command::new("trash")
-            .arg(path)
-            .status()
-            .is_ok()
-        {
-            return Ok(());
-        }
-        // Fallback to regular deletion
-        fs::remove_dir_all(path)?;
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        // On Linux, try to use 'trash-cli' or fallback
-        if std::process::Command::new("trash")
-            .arg(path)
-            .status()
-            .is_ok()
-        {
-            return Ok(());
-        }
-        // Fallback to regular deletion
-        fs::remove_dir_all(path)?;
-    }
-
-    Ok(())
+    })
+    .await
+    .unwrap_or(false)
 }
 
 async fn scan_directory_with_progressive_progress(
@@ -447,7 +514,9 @@ async fn scan_directory_with_progressive_progress(
             &mut node_modules_found,
             &mut results,
             window,
-        ) {
+        )
+        .await
+        {
             eprintln!("Error scanning {}: {}", root, e);
         }
     }
@@ -455,7 +524,7 @@ async fn scan_directory_with_progressive_progress(
     Ok(results)
 }
 
-fn scan_directory_progressive_single(
+async fn scan_directory_progressive_single(
     root: &str,
     include_sizes: bool,
     folders_scanned: &mut usize,
@@ -493,6 +562,14 @@ fn scan_directory_progressive_single(
         if let Ok(entries) = fs::read_dir(&current_path) {
             for entry in entries.flatten() {
                 let path = entry.path();
+
+                // Reject symlinks/junctions
+                if let Ok(metadata) = fs::symlink_metadata(&path) {
+                    if metadata.file_type().is_symlink() {
+                        continue;
+                    }
+                }
+
                 if let Ok(metadata) = entry.metadata() {
                     if metadata.is_dir() {
                         if let Some(name) = path.file_name() {
@@ -502,7 +579,7 @@ fn scan_directory_progressive_single(
                                 let node_modules_path = path.to_string_lossy().to_string();
 
                                 let size = if include_sizes {
-                                    calculate_directory_size(&path)
+                                    calculate_directory_size(&path).await
                                 } else {
                                     None
                                 };
@@ -538,7 +615,7 @@ fn scan_directory_progressive_single(
                 let progress = ScanProgress {
                     current_folder: current_path.to_string_lossy().to_string(),
                     folders_scanned: *folders_scanned,
-                    total_folders_estimated: *folders_scanned + 100, // Progressive estimate
+                    total_folders_estimated: 0, // Mark as unknown for better UX
                     node_modules_found: *node_modules_found,
                     directories_skipped: 0, // Will be updated later
                     is_complete: false,
@@ -551,7 +628,7 @@ fn scan_directory_progressive_single(
         }
 
         // Small delay to keep UI responsive
-        thread::sleep(Duration::from_millis(1));
+        tokio::time::sleep(Duration::from_millis(1)).await;
     }
 
     Ok(())
@@ -710,7 +787,8 @@ pub fn run() {
             start_scan_with_progress,
             delete_node_modules,
             open_folder_dialog,
-            open_folder_in_explorer
+            open_folder_in_explorer,
+            test_trash_functionality
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
