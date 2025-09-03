@@ -61,10 +61,15 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Setup Tauri CLI
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install cross-compilation dependencies (macOS ARM)
+        if: matrix.target == 'aarch64-apple-darwin'
+        run: |
+          rustup target add aarch64-apple-darwin
+          # Install required tools for cross-compilation
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            # Ensure we have the right SDK
+            sudo xcode-select --install || true
+          fi
 
       - name: Install system dependencies (Linux)
         if: matrix.platform == 'ubuntu-latest'
@@ -74,6 +79,9 @@ jobs:
 
       - name: Install frontend dependencies
         run: yarn install --frozen-lockfile --prefer-offline
+
+      - name: Setup Tauri CLI
+        run: yarn tauri --version
 
       - name: Cache Rust dependencies
         uses: actions/cache@v4
@@ -97,6 +105,7 @@ jobs:
         env:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
