@@ -37,17 +37,18 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     echo "🐧 Setting up Linux dependencies..."
     if command -v apt-get &> /dev/null; then
         sudo apt-get update
-        sudo apt-get install -y libwebkit2gtk-4.0-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+        sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
         elif command -v pacman &> /dev/null; then
         sudo pacman -S webkit2gtk gtk3 libayatana-appindicator-gtk3 librsvg
         elif command -v dnf &> /dev/null; then
         sudo dnf install webkit2gtk3-devel gtk3-devel libayatana-appindicator-gtk3-devel librsvg2-devel
     else
         echo "⚠️  Please install the required system dependencies manually:"
-        echo "   - libwebkit2gtk-4.0-dev"
+        echo "   - libwebkit2gtk-4.1-dev"
         echo "   - libgtk-3-dev"
         echo "   - libayatana-appindicator3-dev"
         echo "   - librsvg2-dev"
+        echo "   - libssl-dev"
     fi
     elif [[ "$OSTYPE" == "darwin"* ]]; then
     echo "🍎 macOS detected - make sure Xcode Command Line Tools are installed"

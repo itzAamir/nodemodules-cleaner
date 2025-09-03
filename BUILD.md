@@ -28,7 +28,7 @@ This document explains how to build and release the NodeModules Cleaner applicat
 - Platform-specific dependencies:
   - **Windows**: Visual Studio Build Tools
   - **macOS**: Xcode Command Line Tools
-  - **Linux**: `libwebkit2gtk-4.0-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`
+  - **Linux**: `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`, `libssl-dev`
 
 ### Available Scripts
 
